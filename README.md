@@ -68,3 +68,20 @@ Not all columns may be equally useful for clustering. Consider which features ar
 ### Choosing and Evaluating Clustering Algorithms
 Suppose you do not know that there are only 3 types of objects. Would you be able to determine the number of clusters or do they not seperate nicely?
 Is this because these astronomical objects have similar properties or are your features not discriminative?
+
+## Implemented Pipeline and Tests
+
+This repository now includes a notebook-first, test-driven clustering pipeline:
+
+- Core logic package: `astral_pipeline/`
+- Primary notebook: `notebooks/astral_pipeline.ipynb`
+- Unit/integration/smoke tests: `tests/`
+
+### Run instructions
+
+1. Install dependencies:
+   - `.venv/bin/pip install -r requirements.txt`
+2. Run full tests:
+   - `.venv/bin/python -m pytest -q`
+3. Smoke-execute notebook non-interactively (via tests):
+   - `.venv/bin/python -m pytest -q tests/test_notebook_smoke.py`
