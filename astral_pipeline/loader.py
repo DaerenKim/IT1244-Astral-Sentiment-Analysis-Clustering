@@ -41,6 +41,32 @@ def validate(df: pd.DataFrame) -> None:
             raise ValueError(f"Column '{col}' should be numeric, got {df[col].dtype}")
 
 
+def validate_schema(df: pd.DataFrame, required: list = None, numeric: list = None) -> dict:
+    """
+    Validate dataframe schema and return a report dict.
+
+    Parameters
+    ----------
+    required : list
+        Required columns. Defaults to standard photometric fields + label.
+    numeric : list
+        Columns expected to be numeric. Defaults to bands + redshift.
+    """
+    required = required or (BAND_COLS + ["redshift", LABEL_COL])
+    numeric = numeric or (BAND_COLS + ["redshift"])
+
+    missing = [c for c in required if c not in df.columns]
+    non_numeric = [c for c in numeric if c in df.columns and not pd.api.types.is_numeric_dtype(df[c])]
+    is_valid = (len(missing) == 0) and (len(non_numeric) == 0)
+    return {
+        "is_valid": is_valid,
+        "missing_columns": missing,
+        "non_numeric_columns": non_numeric,
+        "n_rows": len(df),
+        "n_cols": df.shape[1],
+    }
+
+
 def remove_outliers(df: pd.DataFrame) -> pd.DataFrame:
     """
     Remove rows with sentinel/physically impossible values.
@@ -62,6 +88,26 @@ def remove_outliers(df: pd.DataFrame) -> pd.DataFrame:
     return df_clean
 
 
+def report_quality(df: pd.DataFrame) -> dict:
+    """
+    Return high-level data-quality diagnostics for the expected schema.
+    """
+    report = {"n_rows": len(df), "n_cols": df.shape[1]}
+    schema = validate_schema(df)
+    report["schema"] = schema
+
+    if schema["is_valid"]:
+        miss = {c: int(df[c].isna().sum()) for c in BAND_COLS + ["redshift", LABEL_COL]}
+        report["missing_by_column"] = miss
+        sentinel_counts = {
+            c: int(((df[c] <= MAG_LOWER) | (df[c] >= MAG_UPPER)).sum())
+            for c in BAND_COLS
+        }
+        report["sentinel_by_band"] = sentinel_counts
+        report["negative_redshift_count"] = int((df["redshift"] < 0).sum())
+    return report
+
+
 def get_features_and_labels(df: pd.DataFrame):
     """
     Split cleaned dataframe into feature matrix and label series.
@@ -78,7 +124,21 @@ def get_features_and_labels(df: pd.DataFrame):
     return df[feature_cols].copy(), df[LABEL_COL].copy()
 
 
-def load_pipeline(filepath: str):
+def split_features_labels(df: pd.DataFrame, label_col: str = LABEL_COL,
+                          drop_cols: list = None):
+    """
+    Generalized splitter with configurable label/drop columns.
+    """
+    drop_cols = list(drop_cols) if drop_cols is not None else list(COORD_COLS)
+    drop_cols = drop_cols + [label_col]
+    if "objid" in df.columns and "objid" not in drop_cols:
+        drop_cols.append("objid")
+    feature_cols = [c for c in df.columns if c not in drop_cols]
+    return df[feature_cols].copy(), df[label_col].copy()
+
+
+def load_pipeline(filepath: str, drop_coords: bool = True, keep_redshift: bool = True,
+                  remove_invalid: bool = True):
     """
     Convenience: load → validate → remove outliers → split.
 
@@ -90,8 +150,17 @@ def load_pipeline(filepath: str):
     """
     df = load_raw(filepath)
     validate(df)
-    df_clean = remove_outliers(df)
-    X_raw, y = get_features_and_labels(df_clean)
+    df_clean = remove_outliers(df) if remove_invalid else df.copy()
+
+    if drop_coords:
+        work = df_clean.drop(columns=[c for c in COORD_COLS if c in df_clean.columns])
+    else:
+        work = df_clean.copy()
+
+    if (not keep_redshift) and ("redshift" in work.columns):
+        work = work.drop(columns=["redshift"])
+
+    X_raw, y = split_features_labels(work, label_col=LABEL_COL, drop_cols=[])
     print(f"[loader] Final dataset: {len(df_clean)} rows, {X_raw.shape[1]} features.")
     print(f"[loader] Class distribution:\n{y.value_counts().to_string()}")
     return X_raw, y, df_clean

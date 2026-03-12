@@ -5,9 +5,15 @@ Clustering algorithm wrappers: K-Means, GMM, DBSCAN.
 """
 
 import numpy as np
-from sklearn.cluster import KMeans, DBSCAN
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering, SpectralClustering
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+
+try:
+    import hdbscan
+    HDBSCAN_AVAILABLE = True
+except ImportError:
+    HDBSCAN_AVAILABLE = False
 
 
 def find_optimal_k(X: np.ndarray, k_range=range(2, 11), random_state: int = 42) -> dict:
@@ -82,6 +88,109 @@ def tune_dbscan(X: np.ndarray, eps_values: list, min_samples_values: list) -> li
             results.append(res)
     results.sort(key=lambda r: r["silhouette"], reverse=True)
     return results
+
+
+def choose_k_by_metric(k_results: dict, metric: str, higher_is_better: bool = None) -> int:
+    """
+    Select the best k from a metric series inside k-results dict.
+    """
+    vals = np.asarray(k_results[metric])
+    ks = np.asarray(k_results["k_values"])
+    if higher_is_better is None:
+        higher_is_better = metric in ("silhouette", "calinski_harabasz")
+    idx = int(np.argmax(vals) if higher_is_better else np.argmin(vals))
+    return int(ks[idx])
+
+
+def fit_cluster(X: np.ndarray, algorithm: str, **kwargs) -> dict:
+    """
+    Unified clustering dispatcher.
+
+    Supported algorithms:
+      - 'kmeans' with arg k
+      - 'gmm' with arg k
+      - 'dbscan' with args eps, min_samples
+    """
+    algo = algorithm.lower()
+    if algo in ("kmeans", "km"):
+        k = kwargs.get("k")
+        if k is None:
+            raise ValueError("fit_cluster(kmeans): missing required parameter 'k'")
+        return run_kmeans(X, k=int(k), random_state=kwargs.get("random_state", 42))
+    if algo == "gmm":
+        k = kwargs.get("k")
+        if k is None:
+            raise ValueError("fit_cluster(gmm): missing required parameter 'k'")
+        return run_gmm(X, k=int(k), random_state=kwargs.get("random_state", 42))
+    if algo == "dbscan":
+        return run_dbscan(X, eps=kwargs.get("eps", 0.5), min_samples=kwargs.get("min_samples", 10))
+    if algo in ("agglomerative", "agg"):
+        k = kwargs.get("k")
+        if k is None:
+            raise ValueError("fit_cluster(agglomerative): missing required parameter 'k'")
+        model = AgglomerativeClustering(
+            n_clusters=int(k),
+            linkage=kwargs.get("linkage", "ward"),
+            metric=kwargs.get("metric", "euclidean"),
+        )
+        labels = model.fit_predict(X)
+        return {
+            "labels": labels,
+            "model": model,
+            "n_clusters": len(set(labels) - {-1}),
+            "algorithm": "Agglomerative",
+        }
+    if algo in ("spectral", "spec"):
+        k = kwargs.get("k")
+        if k is None:
+            raise ValueError("fit_cluster(spectral): missing required parameter 'k'")
+        model = SpectralClustering(
+            n_clusters=int(k),
+            affinity=kwargs.get("affinity", "nearest_neighbors"),
+            n_neighbors=kwargs.get("n_neighbors", 20),
+            assign_labels=kwargs.get("assign_labels", "kmeans"),
+            random_state=kwargs.get("random_state", 42),
+        )
+        labels = model.fit_predict(X)
+        return {
+            "labels": labels,
+            "model": model,
+            "n_clusters": len(set(labels) - {-1}),
+            "algorithm": "Spectral",
+        }
+    if algo in ("hdbscan", "hdb"):
+        if not HDBSCAN_AVAILABLE:
+            raise ValueError("fit_cluster(hdbscan): optional dependency 'hdbscan' is not installed")
+        model = hdbscan.HDBSCAN(
+            min_cluster_size=kwargs.get("min_cluster_size", 50),
+            min_samples=kwargs.get("min_samples", 10),
+            metric=kwargs.get("metric", "euclidean"),
+        )
+        labels = model.fit_predict(X)
+        n_noise = int(np.sum(labels == -1))
+        return {
+            "labels": labels,
+            "model": model,
+            "n_clusters": len(set(labels) - {-1}),
+            "n_noise": n_noise,
+            "algorithm": "HDBSCAN",
+        }
+    raise ValueError(f"Unknown algorithm: {algorithm}")
+
+
+def compare_algorithms(X: np.ndarray, algorithms: list, y=None) -> list:
+    """
+    Fit multiple algorithms and return their raw result dicts.
+    """
+    outputs = []
+    for spec in algorithms:
+        spec = dict(spec)
+        algo = spec.pop("algorithm")
+        res = fit_cluster(X, algo, **spec)
+        if y is not None:
+            res["y"] = y
+        outputs.append(res)
+    return outputs
 
 
 # ── Notebook-compatibility wrappers ───────────────────────────────────────

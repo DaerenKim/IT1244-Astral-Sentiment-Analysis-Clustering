@@ -27,7 +27,7 @@ extreme values that can persist even after sentinel removal.
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler
 
 
 # ── Color index definitions ────────────────────────────────────────────────
@@ -58,6 +58,16 @@ def add_color_indices(X: pd.DataFrame) -> pd.DataFrame:
     for blue, red in COLOR_INDEX_PAIRS:
         col_name = f"{blue}-{red}"
         X[col_name] = X[blue] - X[red]
+    return X
+
+
+def add_custom_differences(X: pd.DataFrame, pairs: list) -> pd.DataFrame:
+    """
+    Add custom difference features for arbitrary (left, right) column pairs.
+    """
+    X = X.copy()
+    for left, right in pairs:
+        X[f"{left}-{right}"] = X[left] - X[right]
     return X
 
 
@@ -93,7 +103,41 @@ def build_feature_sets(X_raw: pd.DataFrame) -> dict:
     return sets
 
 
-def scale_features(X: pd.DataFrame) -> tuple:
+def make_feature_set(X_raw: pd.DataFrame, include_bands: bool = True,
+                     include_colors: bool = True, include_redshift: bool = True,
+                     extra_cols: list = None) -> pd.DataFrame:
+    """
+    Build a custom feature set from toggles.
+    """
+    X = add_color_indices(X_raw) if include_colors else X_raw.copy()
+    cols = []
+    if include_bands:
+        cols += [c for c in ["u", "g", "r", "i", "z"] if c in X.columns]
+    if include_colors:
+        cols += [f"{b}-{r}" for b, r in COLOR_INDEX_PAIRS if f"{b}-{r}" in X.columns]
+    if include_redshift and "redshift" in X.columns:
+        cols.append("redshift")
+    if extra_cols:
+        cols += [c for c in extra_cols if c in X.columns and c not in cols]
+    return X[cols].copy()
+
+
+def get_scaler(kind: str = "robust"):
+    """
+    Return a scaler instance by name.
+    Supported: 'robust', 'standard', 'minmax'.
+    """
+    kind = kind.lower()
+    if kind == "robust":
+        return RobustScaler()
+    if kind == "standard":
+        return StandardScaler()
+    if kind == "minmax":
+        return MinMaxScaler()
+    raise ValueError(f"Unknown scaler kind: {kind}")
+
+
+def scale_features(X: pd.DataFrame, scaler=None, scaler_kind: str = "robust") -> tuple:
     """
     Apply RobustScaler to a feature dataframe.
 
@@ -106,19 +150,20 @@ def scale_features(X: pd.DataFrame) -> tuple:
     X_scaled : np.ndarray  — scaled feature matrix
     scaler   : fitted RobustScaler instance (for later inverse transforms)
     """
-    scaler = RobustScaler()
+    if scaler is None:
+        scaler = get_scaler(scaler_kind)
     X_scaled = scaler.fit_transform(X)
     return X_scaled, scaler
 
 
-def prepare_all_sets(feature_sets: dict) -> dict:
+def prepare_all_sets(feature_sets: dict, scaler_kind: str = "robust") -> dict:
     """
     Scale all feature sets and return a dict of
     { 'A': (X_scaled, scaler), 'B': ..., 'C': ... }
     """
     prepared = {}
     for name, X in feature_sets.items():
-        X_scaled, scaler = scale_features(X)
+        X_scaled, scaler = scale_features(X, scaler_kind=scaler_kind)
         prepared[name] = {
             "X_scaled": X_scaled,
             "scaler": scaler,
