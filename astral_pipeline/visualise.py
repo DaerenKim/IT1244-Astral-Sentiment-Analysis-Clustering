@@ -79,6 +79,56 @@ def plot_redshift_distribution(X_raw: pd.DataFrame, y: pd.Series) -> plt.Figure:
     fig.tight_layout()
     return fig
 
+def plot_redshift_boxplot_by_class(X_raw: pd.DataFrame, y: pd.Series) -> plt.Figure:
+    """
+    One subplot per class so each gets its own y-scale.
+    """
+    df = pd.DataFrame({
+        "redshift": X_raw["redshift"].values,
+        "class": y.values,
+    })
+
+    classes = [c for c in ["STAR", "GALAXY", "QSO"] if c in df["class"].unique()]
+    palette = {"STAR": "#f4c542", "GALAXY": "#4a90d9", "QSO": "#e85d4a"}
+
+    fig, axes = plt.subplots(1, len(classes), figsize=(5 * len(classes), 4))
+    if len(classes) == 1:
+        axes = [axes]
+
+    for ax, cls in zip(axes, classes):
+        sub = df[df["class"] == cls].copy()
+        sub["group"] = cls  # single category for seaborn boxplot axis
+
+        sns.boxplot(
+            data=sub,
+            x="group",
+            y="redshift",
+            color=palette.get(cls, "grey"),
+            showfliers=False,
+            ax=ax,
+        )
+
+        # Optional sparse points for distribution feel
+        sample_n = min(len(sub), 1000)
+        if sample_n > 0:
+            samp = sub.sample(sample_n, random_state=42)
+            sns.stripplot(
+                data=samp,
+                x="group",
+                y="redshift",
+                color="black",
+                alpha=0.2,
+                size=2,
+                ax=ax,
+            )
+
+        ax.set_title(f"{cls} Redshift", fontweight="bold")
+        ax.set_xlabel("")
+        ax.set_ylabel("Redshift")
+
+    fig.suptitle("Redshift Boxplots by Class (Independent Scales)", fontweight="bold")
+    fig.tight_layout()
+    return fig
 
 def plot_color_index_scatter(X_with_colors: pd.DataFrame, y: pd.Series) -> plt.Figure:
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
@@ -147,7 +197,7 @@ def plot_k_selection(k_results: dict, gmm_results: dict = None,
                    label=f"best k={k[best_idx]}")
         if chosen_k is not None:
             ax.axvline(chosen_k, color="#222222", linestyle=":", alpha=0.9,
-                       label=f"chosen k={chosen_k}")
+                       label=f"theoretical k={chosen_k}")
         ax.set_xlabel("Number of Clusters (k)")
         ax.set_title(f"{title}\n({direction})", fontsize=10)
         ax.legend(fontsize=8)
@@ -164,6 +214,50 @@ def plot_k_selection(k_results: dict, gmm_results: dict = None,
 def _pca_2d(X: np.ndarray):
     pca = PCA(n_components=2, random_state=42)
     return pca.fit_transform(X), pca
+
+
+def compute_embedding(X: np.ndarray, method: str = "pca", random_state: int = 42,
+                      **kwargs) -> np.ndarray:
+    """
+    Compute a 2D embedding for visualization.
+    Supported methods: 'pca', 'umap'
+    """
+    m = method.lower()
+    if m == "pca":
+        coords, _ = _pca_2d(X)
+        return coords
+    if m == "umap":
+        if not UMAP_AVAILABLE:
+            raise ValueError("UMAP requested but umap-learn is not installed.")
+        import umap as umap_lib
+        reducer = umap_lib.UMAP(
+            n_components=2,
+            random_state=random_state,
+            n_neighbors=kwargs.get("n_neighbors", 30),
+            min_dist=kwargs.get("min_dist", 0.1),
+        )
+        return reducer.fit_transform(X)
+    raise ValueError(f"Unknown embedding method: {method}")
+
+
+def plot_embedding(X: np.ndarray, labels: np.ndarray, method: str = "pca",
+                   title: str = "") -> plt.Figure:
+    """
+    Plot a single embedding view colored by cluster labels.
+    """
+    coords = compute_embedding(X, method=method)
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for cid in sorted(set(labels)):
+        mask = labels == cid
+        color = "lightgrey" if cid == -1 else CLUSTER_PALETTE[cid % 10]
+        label = "Noise" if cid == -1 else f"Cluster {cid}"
+        ax.scatter(coords[mask, 0], coords[mask, 1], s=3, alpha=0.4, color=color, label=label)
+    ax.set_title(f"{method.upper()} — {title}".strip(" —"))
+    ax.set_xlabel("Dim-1")
+    ax.set_ylabel("Dim-2")
+    ax.legend(markerscale=4, fontsize=8)
+    fig.tight_layout()
+    return fig
 
 
 def plot_pca_clusters(X: np.ndarray, labels: np.ndarray, y: pd.Series,
@@ -290,6 +384,22 @@ def plot_confusion_heatmap(mapping_df: pd.DataFrame, title: str = "") -> plt.Fig
 
 
 def plot_summary_table(summary_df: pd.DataFrame) -> plt.Figure:
+    # Accept canonical lowercase schema and map it to display labels on the fly.
+    if "algorithm" in summary_df.columns:
+        rename_map = {
+            "algorithm": "Algorithm",
+            "feature_set": "Feature Set",
+            "k": "N Clusters",
+            "silhouette": "Silhouette ↑",
+            "davies_bouldin": "Davies-Bouldin ↓",
+            "calinski_harabasz": "Calinski-Harabasz ↑",
+            "ari": "ARI ↑ (post-hoc)",
+            "nmi": "NMI ↑ (post-hoc)",
+            "purity": "Purity ↑ (post-hoc)",
+        }
+        present = {k: v for k, v in rename_map.items() if k in summary_df.columns}
+        summary_df = summary_df.rename(columns=present)
+
     int_cols = ["Algorithm", "Feature Set", "N Clusters",
                 "Silhouette ↑", "Davies-Bouldin ↓", "Calinski-Harabasz ↑"]
     ext_cols = ["Algorithm", "Feature Set",

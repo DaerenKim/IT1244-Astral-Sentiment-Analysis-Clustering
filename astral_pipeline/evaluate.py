@@ -46,7 +46,20 @@ def cluster_purity(labels: np.ndarray, y) -> float:
         np.bincount(pd.factorize(y_v[l_v == cid])[0]).max()
         for cid in np.unique(l_v)
     )
-    return round(total_correct / len(l_v), 4)
+    return float(round(total_correct / len(l_v), 4))
+
+
+def external_metrics_strict(labels: np.ndarray, y) -> dict:
+    """
+    Strict external-metrics API with explicit argument order.
+    """
+    mask = labels != -1
+    l_v, y_v = labels[mask], np.asarray(y)[mask]
+    return {
+        "ari":    round(adjusted_rand_score(y_v, l_v), 4),
+        "nmi":    round(normalized_mutual_info_score(y_v, l_v), 4),
+        "purity": cluster_purity(labels, y),
+    }
 
 
 def external_metrics(a, b) -> dict:
@@ -62,13 +75,7 @@ def external_metrics(a, b) -> dict:
     else:
         labels, y = a, b
 
-    mask = labels != -1
-    l_v, y_v = labels[mask], np.asarray(y)[mask]
-    return {
-        "ari":    round(adjusted_rand_score(y_v, l_v), 4),
-        "nmi":    round(normalized_mutual_info_score(y_v, l_v), 4),
-        "purity": cluster_purity(labels, y),
-    }
+    return external_metrics_strict(labels, y)
 
 
 def cluster_class_mapping(labels: np.ndarray, y) -> pd.DataFrame:
@@ -129,3 +136,22 @@ def build_summary_table(results: list) -> pd.DataFrame:
                 "purity": r["purity"],
             })
     return pd.DataFrame(rows).sort_values("silhouette", ascending=False).reset_index(drop=True)
+
+
+def to_display_summary(summary_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert canonical lowercase summary columns to display-friendly labels.
+    """
+    rename_map = {
+        "algorithm": "Algorithm",
+        "feature_set": "Feature Set",
+        "k": "N Clusters",
+        "silhouette": "Silhouette ↑",
+        "davies_bouldin": "Davies-Bouldin ↓",
+        "calinski_harabasz": "Calinski-Harabasz ↑",
+        "ari": "ARI ↑ (post-hoc)",
+        "nmi": "NMI ↑ (post-hoc)",
+        "purity": "Purity ↑ (post-hoc)",
+    }
+    cols = [c for c in rename_map if c in summary_df.columns]
+    return summary_df[cols].rename(columns=rename_map).copy()
