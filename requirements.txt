@@ -6,6 +6,7 @@ scipy>=1.17.0
 # Machine learning
 scikit-learn>=1.8.0
 hdbscan
+joblib
 
 # Visualisation
 matplotlib>=3.10.8
