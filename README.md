@@ -136,15 +136,25 @@ GMM extends K-Means by modelling clusters as elliptical Gaussian distributions:
 
 ```
 .
-├── Dataset/
-│   ├── star-galaxy-quasar.csv   # Raw survey data
-│   └── astral_data.csv          # Preprocessed feature matrix (color indices + redshift_log)
-├── Notebooks/
+├── Code/
 │   ├── 0_eda.ipynb
 │   ├── 1_kmeans.ipynb
-│   ├── 2_dbscan_hdbscan.ipynb
-│   └── 3_gmm.ipynb
+│   ├── 2_gmm.ipynb
+│   └── 3_dbscan_hdbscan.ipynb
+├── Model & Dataset/
+│   ├── star-galaxy-quasar.csv        # Raw survey data
+│   ├── astral_data.csv               # Preprocessed feature matrix (color indices + redshift_log)
+│   ├── kmeans_model_k=2.pkl
+│   ├── kmeans_model_k=3.pkl
+│   ├── kmeans_model_k=4.pkl
+│   ├── gmm_model_k=3.pkl
+│   ├── gmm_model_k=10.pkl
+│   ├── dbscan_model.pkl
+│   ├── hdbscan_model_1.pkl
+│   └── hdbscan_model_2.pkl
+├── IT1244_Team1_Project Report.pdf
 ├── requirements.txt
+├── Readme.pdf
 └── README.md
 ```
 
